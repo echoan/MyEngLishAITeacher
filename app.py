@@ -3,7 +3,7 @@ Author: Chengya
 Description: Description
 Date: 2025-12-08 17:40:02
 LastEditors: Chengya
-LastEditTime: 2025-12-09 10:53:58
+LastEditTime: 2025-12-09 10:58:09
 '''
 import streamlit as st
 import google.generativeai as genai
@@ -20,50 +20,50 @@ with st.sidebar:
     st.markdown("[如何获取 API Key?](https://aistudio.google.com/app/apikey)")
 
 # --- 3. 核心逻辑：定义 AI 模型 ---
-# def get_gemini_response(prompt):
-#     if not api_key:
-#         return "请先在左侧输入API Key"
-
-#     try:
-#         genai.configure(api_key=api_key)
-#         model = genai.GenerativeModel('gemini-1.5-flash') # 使用速度较快的 Flash 模型
-#         response = model.generate_content(prompt)
-#         if response.text:
-#            return response.text
-#         else:
-#            return "AI 未返回有效内容，请稍后重试。"
-#     except Exception as e:
-#         return f"调用 AI 出错: {str(e)}"
-
-# --- 替换原来的 get_gemini_response 函数 ---
 def get_gemini_response(prompt):
     if not api_key:
-        return "⚠️ 请先在左侧输入 API Key"
+        return "请先在左侧输入API Key"
 
     try:
         genai.configure(api_key=api_key)
-
-        # === 🕵️‍♂️ 侦探模式：先看看我不配用哪个模型 ===
-        available_models = []
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                available_models.append(m.name)
-
-        # 打印出来给你看 (在网页上显示)
-        debug_info = f"🔍 Google 说你能用的模型有: \n{available_models}"
-        print(debug_info) # 也会打印在后台 logs
-
-        # 尝试调用 Flash (这里我们换一个更具体的名称试试)
-        # 很多时候 'gemini-1.5-flash' 是个虚指，'gemini-1.5-flash-001' 才是实指
-        target_model = 'gemini-1.5-flash-001'
-
-        model = genai.GenerativeModel(target_model)
+        model = genai.GenerativeModel('gemini-2.5-flash') # 使用速度较快的 Flash 模型
         response = model.generate_content(prompt)
-        return response.text
-
+        if response.text:
+           return response.text
+        else:
+           return "AI 未返回有效内容，请稍后重试。"
     except Exception as e:
-        # 如果报错，把刚才查到的模型列表也显示出来，方便 debug
-        return f"❌ 出错啦！\n\n{debug_info if 'debug_info' in locals() else ''}\n\n错误详情: {str(e)}"
+        return f"调用 AI 出错: {str(e)}"
+
+# --- 替换原来的 get_gemini_response 函数 ---
+# def get_gemini_response(prompt):
+#     if not api_key:
+#         return "⚠️ 请先在左侧输入 API Key"
+
+#     try:
+#         genai.configure(api_key=api_key)
+
+#         # === 🕵️‍♂️ 侦探模式：先看看我不配用哪个模型 ===
+#         available_models = []
+#         for m in genai.list_models():
+#             if 'generateContent' in m.supported_generation_methods:
+#                 available_models.append(m.name)
+
+#         # 打印出来给你看 (在网页上显示)
+#         debug_info = f"🔍 Google 说你能用的模型有: \n{available_models}"
+#         print(debug_info) # 也会打印在后台 logs
+
+#         # 尝试调用 Flash (这里我们换一个更具体的名称试试)
+#         # 很多时候 'gemini-1.5-flash' 是个虚指，'gemini-1.5-flash-001' 才是实指
+#         target_model = 'gemini-1.5-flash-001'
+
+#         model = genai.GenerativeModel(target_model)
+#         response = model.generate_content(prompt)
+#         return response.text
+
+#     except Exception as e:
+#         # 如果报错，把刚才查到的模型列表也显示出来，方便 debug
+#         return f"❌ 出错啦！\n\n{debug_info if 'debug_info' in locals() else ''}\n\n错误详情: {str(e)}"
 
 # --- 4. 界面布局 ---
 st.title("🎓 英语单词闪卡应用 (AI版)")
