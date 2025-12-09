@@ -3,7 +3,7 @@ Author: Chengya
 Description: Description
 Date: 2025-12-09 12:37:25
 LastEditors: Chengya
-LastEditTime: 2025-12-09 16:43:43
+LastEditTime: 2025-12-09 22:01:30
 '''
 import streamlit as st
 import google.generativeai as genai
@@ -42,21 +42,6 @@ if 'image_cache' not in st.session_state:
 
 def get_api_key():
     if "GOOGLE_API_KEY" in st.secrets:
-        try:
-            genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-            # === 🕵️‍♂️ 侦探模式：先看看我不配用哪个模型 ===
-            available_models = []
-            for m in genai.list_models():
-                if 'generateContent' in m.supported_generation_methods:
-                    available_models.append(m.name)
-
-            # 打印出来给你看 (在网页上显示)
-            debug_info = f"🔍 Google 说你能用的模型有: \n{available_models}"
-            st.warning(f"{debug_info}")
-            print(debug_info) # 也会打印在后台 logs
-        except Exception as e:
-            # 如果报错，把刚才查到的模型列表也显示出来，方便 debug
-            return f"❌ 出错啦！\n\n{debug_info if 'debug_info' in locals() else ''}\n\n错误详情: {str(e)}"
         return st.secrets["GOOGLE_API_KEY"]
     return st.sidebar.text_input("请输入 Google Gemini API Key", type="password")
 
@@ -68,9 +53,8 @@ def generate_image_url(image_prompt):
 
 def generate_quiz(word, api_key):
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    model = genai.GenerativeModel('gemini-2.0-flash')
     # model = genai.GenerativeModel('gemini-1.5-flash')
-
     prompt = f"""
     请针对单词 "{word}" 设计一道英语词汇测试题。
 
