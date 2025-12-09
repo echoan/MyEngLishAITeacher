@@ -3,11 +3,12 @@ Author: Chengya
 Description: Description
 Date: 2025-12-08 17:40:02
 LastEditors: Chengya
-LastEditTime: 2025-12-09 10:23:56
+LastEditTime: 2025-12-09 10:34:08
 '''
 import streamlit as st
 import google.generativeai as genai
 import json
+st.warning(f"当前 SDK 版本: {genai.__version__}")
 
 # --- 1. 配置页面 ---
 st.set_page_config(page_title="英语单词闪卡大师", page_icon="🎓")
