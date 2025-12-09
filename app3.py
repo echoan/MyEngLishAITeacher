@@ -1,21 +1,19 @@
 '''
 Author: Chengya
 Description: Description
-Date: 2025-12-09 12:37:25
+Date: 2025-12-09 11:29:32
 LastEditors: Chengya
-LastEditTime: 2025-12-09 12:37:26
+LastEditTime: 2025-12-09 11:29:33
 '''
 import streamlit as st
 import google.generativeai as genai
 import json
 import random
-import requests
-import time
-from gtts import gTTS # 导入语音库
-import io # 导入IO库用于处理音频流
+import requests # 需要导入 requests 来调用绘图 API
+import time # 用于生成时间戳防缓存
 
 # --- 1. 页面配置 ---
-st.set_page_config(page_title="英语单词闪卡大师 (AI绘图+发音版)", page_icon="🎨")
+st.set_page_config(page_title="英语单词闪卡大师 (AI绘图版)", page_icon="🎨")
 
 # --- 2. 状态初始化 ---
 if 'word_bank' not in st.session_state:
@@ -26,7 +24,7 @@ if 'quiz_state' not in st.session_state:
     st.session_state['quiz_state'] = 'IDLE'
 if 'user_selection' not in st.session_state:
     st.session_state['user_selection'] = None
-if 'generated_image_url' not in st.session_state:
+if 'generated_image_url' not in st.session_state: # 新增：存图片URL
     st.session_state['generated_image_url'] = None
 
 # --- 3. 核心逻辑函数 ---
@@ -36,12 +34,17 @@ def get_api_key():
         return st.secrets["GOOGLE_API_KEY"]
     return st.sidebar.text_input("请输入 Google Gemini API Key", type="password")
 
+# NEW: 调用第三方免费 API 生成图片
 def generate_image_url(image_prompt):
+    # 使用 Pollinations.ai 免费 API (无需 Key, 速度快)
+    # 为了防止图片缓存，加一个时间戳
     timestamp = int(time.time())
+    # 对 prompt 进行 URL 编码
     encoded_prompt = requests.utils.quote(image_prompt)
     image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?nolog=true&t={timestamp}"
     return image_url
 
+# 修改 Prompt，让 AI 生成英文绘图指令
 def generate_quiz(word, api_key):
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel('gemini-2.5-flash')
@@ -52,14 +55,16 @@ def generate_quiz(word, api_key):
     核心任务：
     1. 为这个单词设计一个非常有创意、画面感极强、有助于记忆的场景。
     2. 将这个场景翻译成一段详细的【英文绘图提示词 (Image Generation Prompt)】。
-    3. 英文提示词要求：包含主体、动作、环境、光线、艺术风格（如 cartoon style, digital art, vibrant colors）。
+    3. 英文提示词要求：包含主体、动作、环境、光线、艺术风格（如 cartoon style, digital art, vibrant colors）。例如： "A cute cartoon squirrel holding a giant acorn, standing on a pile of books in a magical forest library, glowing warm light, digital illustration."
 
     请严格输出标准的 JSON 格式，不要包含 Markdown 标记。
     JSON 结构如下：
     {{
         "word": "{word}",
         "ipa": "单词音标",
-        "image_gen_prompt": "Detailed English image generation prompt...",
+        # 这里改为英文绘图 Prompt
+        "image_gen_prompt": "Detailed English image generation prompt describing the memory scene...",
+        # 保留一个简短的中文描述用于备用显示
         "visual_cue_cn": "简短的中文场景描述（备用）",
         "options": [
             {{"label": "A", "text": "错误中文释义1"}},
@@ -95,6 +100,7 @@ def next_question():
     st.session_state['quiz_state'] = 'IDLE'
     st.session_state['current_question'] = None
     st.session_state['user_selection'] = None
+    # 清空图片
     st.session_state['generated_image_url'] = None
     generate_new_question()
 
@@ -103,7 +109,7 @@ def generate_new_question():
         st.warning("词库空了！请先添加单词。")
         return
 
-    st.session_state['generated_image_url'] = None
+    st.session_state['generated_image_url'] = None # 先清空上一张图
 
     target_word = random.choice(st.session_state['word_bank'])
     api_key = get_api_key()
@@ -111,82 +117,83 @@ def generate_new_question():
         st.warning("请填写 API Key")
         return
 
-    with st.spinner(f"🤖 Gemini 正在构思【{target_word}】..."):
+    # 1. 生成文本数据
+    with st.spinner(f"🤖 Gemini 正在构思【{target_word}】的记忆场景..."):
         quiz_data = generate_quiz(target_word, api_key)
 
     if quiz_data:
-        with st.spinner("🎨 正在绘制插图..."):
-            img_prompt = quiz_data.get("image_gen_prompt", f"illustration of {target_word}")
+        # 2. 拿着 Gemini 的描述去生成图片
+        with st.spinner("🎨 AI 画师正在绘制插图 (可能需要 5-10 秒)..."):
+            # 获取英文 Prompt
+            img_prompt = quiz_data.get("image_gen_prompt", f"A creative illustration representing the word {target_word}")
+            # 生成 URL
             img_url = generate_image_url(img_prompt)
+            # 存入状态
             st.session_state['current_question'] = quiz_data
             st.session_state['generated_image_url'] = img_url
             st.session_state['quiz_state'] = 'QUIZ'
 
 # --- 4. 界面渲染 ---
 
-st.title("🎨 英语单词闪卡大师 (Pro Max)")
+st.title("🎨 英语单词闪卡大师 (AI绘图版)")
 
+# --- 区域 A: 单词录入区 ---
 with st.expander("➕ 添加生词到词库", expanded=(len(st.session_state['word_bank']) == 0)):
     st.text_area("输入单词 (每行一个)", key="new_words_input", height=100)
     st.button("📥 存入词库", on_click=add_words)
 
 if st.session_state['word_bank']:
-    st.caption(f"📚 词库：{len(st.session_state['word_bank'])} 个单词")
+    st.caption(f"📚 当前词库缓存：{len(st.session_state['word_bank'])} 个单词")
 else:
     st.info("👆 请先在上方输入一些单词开始。")
 
 st.divider()
 
-# 出题按钮
+# --- 区域 B: 出题控制区 ---
 if st.session_state['quiz_state'] == 'IDLE' and st.session_state['word_bank']:
-    if st.button("🚀 生成下一张闪卡", type="primary", use_container_width=True):
+    if st.button("🚀 生成下一张闪卡", type="primary"):
         generate_new_question()
 
-# 题目显示区
+# --- 区域 C: 题目显示区 ---
 current_q = st.session_state['current_question']
 img_url = st.session_state['generated_image_url']
 
 if current_q and st.session_state['quiz_state'] in ['QUIZ', 'RESULT']:
-    # 1. 单词与音标
+    # 1. 单词卡片头
     st.markdown(f"""
-    <div style="text-align: center;">
+    <div style="padding: 20px; border-radius: 10px; background-color: #f0f2f6; text-align: center; margin-bottom: 20px;">
         <h1 style="color: #31333F; margin:0; font-size: 3em;">{current_q['word']}</h1>
-        <p style="color: #666; font-size: 1.5em; margin-bottom: 10px;">/{current_q['ipa']}/</p>
+        <p style="color: #666; font-size: 1.5em; margin-top: 10px;">/{current_q['ipa']}/</p>
     </div>
     """, unsafe_allow_html=True)
 
-    # --- NEW: 语音播放集成 ---
-    # 使用 columns 将播放器居中稍微好看一点，或者直接放
-    col_audio_1, col_audio_2, col_audio_3 = st.columns([1, 2, 1])
-    with col_audio_2:
-        try:
-            # 实时生成语音流
-            tts = gTTS(text=current_q['word'], lang='en')
-            sound_file = io.BytesIO()
-            tts.write_to_fp(sound_file)
-            st.audio(sound_file, format='audio/mp3')
-        except Exception as e:
-            st.warning("⚠️ 语音生成失败，请检查网络")
-    # -----------------------
-
-    # 2. 图片展示
+    # 2. 显示 AI 插图 (核心新功能!)
     if img_url:
-        st.image(img_url, caption="AI 联想记忆插图", use_container_width=True)
+        with st.container():
+            # 使用 columns 居中显示图片
+            col_spacer1, col_img, col_spacer2 = st.columns([1, 3, 1])
+            with col_img:
+                st.image(img_url, caption="AI 联想记忆插图", use_container_width=True)
+                # 可以选择显示中文提示辅助
+                # st.caption(f"💡 提示: {current_q.get('visual_cue_cn', '')}")
     else:
-        st.error("图片加载失败")
+        st.error("图片加载失败，请刷新重试。")
 
-    # 3. 选项
-    st.write("### 👇 选择释义：")
+    # 3. 选项区
+    st.write("### 👇 选择正确的中文释义：")
+
     disable_btns = (st.session_state['quiz_state'] == 'RESULT')
-    col1, col2 = st.columns(2, gap="small")
+    col1, col2 = st.columns(2, gap="medium")
     options = current_q['options']
 
     with col1:
         for opt in options[:2]:
             btn_type = "secondary"
+            # 结果展示时高亮正确/错误
             if disable_btns:
-                if opt['label'] == current_q['correct_label']: btn_type = "primary"
-                elif opt['label'] == st.session_state['user_selection']: btn_type = "secondary"
+                if opt['label'] == current_q['correct_label']: btn_type = "primary" # 正确标绿(Streamlit primary色)
+                elif opt['label'] == st.session_state['user_selection']: btn_type = "secondary" # 选错的标灰
+
             if st.button(f"{opt['label']}. {opt['text']}", key=opt['label'], disabled=disable_btns, type=btn_type, use_container_width=True):
                 check_answer(opt['label'])
                 st.rerun()
@@ -197,22 +204,23 @@ if current_q and st.session_state['quiz_state'] in ['QUIZ', 'RESULT']:
             if disable_btns:
                 if opt['label'] == current_q['correct_label']: btn_type = "primary"
                 elif opt['label'] == st.session_state['user_selection']: btn_type = "secondary"
+
             if st.button(f"{opt['label']}. {opt['text']}", key=opt['label'], disabled=disable_btns, type=btn_type, use_container_width=True):
                 check_answer(opt['label'])
                 st.rerun()
 
-    # 4. 结果
+    # 4. 结果反馈区
     if st.session_state['quiz_state'] == 'RESULT':
         user_choice = st.session_state['user_selection']
         correct_choice = current_q['correct_label']
 
         st.divider()
         if user_choice == correct_choice:
-            st.success("🎉 正确！")
+            st.success(f"🎉 回答正确！这张图完美诠释了 {current_q['word']}！")
             st.balloons()
         else:
             correct_text = next((o['text'] for o in options if o['label'] == correct_choice), "未知")
-            st.error(f"❌ 错误。答案是 【{correct_choice}】 {correct_text}")
-            st.info(f"💡 提示：{current_q.get('visual_cue_cn', '请看图记忆')}")
+            st.error(f"❌ 回答错误。正确答案是 【{correct_choice}】 {correct_text}。")
+            st.info(f"💡 记忆提示：{current_q.get('visual_cue_cn', '请参考上方插图')}")
 
-        st.button("➡️ 下一个", on_click=next_question, type="primary", use_container_width=True)
+        st.button("➡️ 下一个单词", on_click=next_question, type="primary", use_container_width=True)

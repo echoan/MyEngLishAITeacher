@@ -3,7 +3,7 @@ Author: Chengya
 Description: Description
 Date: 2025-12-08 17:40:02
 LastEditors: Chengya
-LastEditTime: 2025-12-09 10:58:09
+LastEditTime: 2025-12-09 12:36:46
 '''
 import streamlit as st
 import google.generativeai as genai
