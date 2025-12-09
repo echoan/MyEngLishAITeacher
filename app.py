@@ -3,7 +3,7 @@ Author: Chengya
 Description: Description
 Date: 2025-12-08 17:40:02
 LastEditors: Chengya
-LastEditTime: 2025-12-09 10:04:10
+LastEditTime: 2025-12-09 10:20:02
 '''
 import streamlit as st
 import google.generativeai as genai
@@ -21,7 +21,7 @@ with st.sidebar:
 # --- 3. 核心逻辑：定义 AI 模型 ---
 def get_gemini_response(prompt):
     if not api_key:
-        return "请先在左侧输入 API Key"
+        return "请先在左侧输入您的API Key"
 
     try:
         genai.configure(api_key=api_key)
