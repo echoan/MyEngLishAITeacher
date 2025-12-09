@@ -3,7 +3,7 @@ Author: Chengya
 Description: Description
 Date: 2025-12-09 12:37:25
 LastEditors: Chengya
-LastEditTime: 2025-12-09 22:01:30
+LastEditTime: 2025-12-09 22:41:49
 '''
 import streamlit as st
 import google.generativeai as genai
@@ -53,8 +53,9 @@ def generate_image_url(image_prompt):
 
 def generate_quiz(word, api_key):
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.0-flash')
+    # model = genai.GenerativeModel('gemini-2.0-flash')
     # model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemma-3-12b-it')
     prompt = f"""
     请针对单词 "{word}" 设计一道英语词汇测试题。
 
