@@ -3,7 +3,7 @@ Author: Chengya
 Description: Description
 Date: 2025-12-09 12:37:25
 LastEditors: Chengya
-LastEditTime: 2025-12-09 14:56:34
+LastEditTime: 2025-12-09 15:09:21
 '''
 import streamlit as st
 import google.generativeai as genai
@@ -183,6 +183,22 @@ def generate_new_question():
     if not api_key:
         st.warning("请填写 API Key")
         return
+
+    try:
+        genai.configure(api_key=api_key)
+        # === 🕵️‍♂️ 侦探模式：先看看我不配用哪个模型 ===
+        available_models = []
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                available_models.append(m.name)
+
+        # 打印出来给你看 (在网页上显示)
+        debug_info = f"🔍 Google 说你能用的模型有: \n{available_models}"
+        print(debug_info) # 也会打印在后台 logs
+    except Exception as e:
+        # 如果获取模型列表失败，不要中断流程，只记录并继续使用默认模型
+        print(f"获取可用模型失败: {e}")
+        st.warning("⚠️ 无法获取可用模型列表（网络或 Key 问题），将使用默认模型继续。")
 
     # 4. 生成题目文本
     with st.spinner(f"🤖 Gemini 正在构思【{target_word}】..."):
