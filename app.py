@@ -3,7 +3,7 @@ Author: Chengya
 Description: Description
 Date: 2025-12-09 12:37:25
 LastEditors: Chengya
-LastEditTime: 2025-12-09 23:05:09
+LastEditTime: 2025-12-09 23:06:47
 '''
 import streamlit as st
 import google.generativeai as genai
@@ -53,7 +53,7 @@ def generate_image_url(image_prompt):
 
 def generate_quiz(word, api_key):
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.0-pro')
+    model = genai.GenerativeModel('gemini-2.0-flash')
     # model = genai.GenerativeModel('gemini-1.5-flash')
     # model = genai.GenerativeModel('gemma-3-12b-it')
     prompt = f"""
