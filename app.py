@@ -3,7 +3,7 @@ Author: Chengya
 Description: Description
 Date: 2025-12-09 12:37:25
 LastEditors: Chengya
-LastEditTime: 2025-12-09 12:37:26
+LastEditTime: 2025-12-09 14:00:13
 '''
 import streamlit as st
 import google.generativeai as genai
@@ -28,6 +28,12 @@ if 'user_selection' not in st.session_state:
     st.session_state['user_selection'] = None
 if 'generated_image_url' not in st.session_state:
     st.session_state['generated_image_url'] = None
+    # ... 其他状态初始化 ...
+if 'has_started' not in st.session_state:
+    st.session_state['has_started'] = False # 默认为 False，表示还没开始过
+    # 👇 新增：剩余单词池
+if 'remaining_words' not in st.session_state:
+    st.session_state['remaining_words'] = []
 
 # --- 3. 核心逻辑函数 ---
 
@@ -83,9 +89,13 @@ def add_words():
     raw_text = st.session_state.new_words_input
     if raw_text.strip():
         new_list = [w.strip() for w in raw_text.split('\n') if w.strip()]
+
+        # 1. 存入总词库 (去重逻辑可以以后再加，现在先直接存)
         st.session_state['word_bank'].extend(new_list)
+        # 2. 👇 同时存入剩余单词池 (让新词也能立刻被抽到)
+        st.session_state['remaining_words'].extend(new_list)
         st.session_state.new_words_input = ""
-        st.toast(f"✅ 已添加 {len(new_list)} 个单词到词库！")
+        st.toast(f"✅ 已添加 {len(new_list)} 个单词到词库！当前剩余待复习: {len(st.session_state['remaining_words'])}")
 
 def check_answer(label):
     st.session_state['user_selection'] = label
@@ -99,13 +109,23 @@ def next_question():
     generate_new_question()
 
 def generate_new_question():
+    # 1. 安全检查：总词库是不是空的
     if not st.session_state['word_bank']:
         st.warning("词库空了！请先添加单词。")
         return
 
+    # 2. 👇 核心逻辑：检查剩余池子是否为空
+    if not st.session_state['remaining_words']:
+        # 如果空了，就重置（开启新一轮）
+        st.session_state['remaining_words'] = st.session_state['word_bank'].copy()
+        st.toast("🔄 所有单词已复习一遍，开启新一轮循环！", icon="🎉")
+
+    # 清空上一张图
     st.session_state['generated_image_url'] = None
 
-    target_word = random.choice(st.session_state['word_bank'])
+    # 3. 👇 从【剩余池子】里抽，而不是从总库里抽
+    target_word = random.choice(st.session_state['remaining_words'])
+
     api_key = get_api_key()
     if not api_key:
         st.warning("请填写 API Key")
@@ -129,9 +149,14 @@ st.title("🎨 英语单词闪卡大师 (Pro Max)")
 with st.expander("➕ 添加生词到词库", expanded=(len(st.session_state['word_bank']) == 0)):
     st.text_area("输入单词 (每行一个)", key="new_words_input", height=100)
     st.button("📥 存入词库", on_click=add_words)
-
+# 词库进度显示
 if st.session_state['word_bank']:
-    st.caption(f"📚 词库：{len(st.session_state['word_bank'])} 个单词")
+    total = len(st.session_state['word_bank'])
+    left = len(st.session_state['remaining_words'])
+    # 显示进度：总共 10 个，本轮还剩 4 个
+    st.caption(f"📚 总词库：{total} | ⏳ 本轮剩余：{left}")
+    # 甚至可以加个进度条
+    st.progress((total - left) / total)
 else:
     st.info("👆 请先在上方输入一些单词开始。")
 
@@ -139,7 +164,10 @@ st.divider()
 
 # 出题按钮
 if st.session_state['quiz_state'] == 'IDLE' and st.session_state['word_bank']:
-    if st.button("🚀 生成下一张闪卡", type="primary", use_container_width=True):
+    # 动态文案逻辑：如果是第一次，显示“开始”，否则显示“下一张”
+    btn_label = "🚀 开始测试" if not st.session_state['has_started'] else "🚀 生成下一张闪卡"
+    if st.button(btn_label, type="primary", use_container_width=True):
+        st.session_state['has_started'] = True # 只要点了一次，就标记为“已开始”
         generate_new_question()
 
 # 题目显示区
