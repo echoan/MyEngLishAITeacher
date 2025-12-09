@@ -52,6 +52,7 @@ def get_api_key():
 
             # 打印出来给你看 (在网页上显示)
             debug_info = f"🔍 Google 说你能用的模型有: \n{available_models}"
+            st.error(f"AI 生成解析失败: {debug_info}")
             print(debug_info) # 也会打印在后台 logs
         except Exception as e:
             # 如果报错，把刚才查到的模型列表也显示出来，方便 debug
