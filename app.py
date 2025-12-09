@@ -3,7 +3,7 @@ Author: Chengya
 Description: Description
 Date: 2025-12-09 12:37:25
 LastEditors: Chengya
-LastEditTime: 2025-12-09 15:43:01
+LastEditTime: 2025-12-09 16:26:16
 '''
 import streamlit as st
 import google.generativeai as genai
@@ -52,7 +52,7 @@ def get_api_key():
 
             # 打印出来给你看 (在网页上显示)
             debug_info = f"🔍 Google 说你能用的模型有: \n{available_models}"
-            st.error(f"AI 生成解析失败: {debug_info}")
+            st.warning(f"{debug_info}")
             print(debug_info) # 也会打印在后台 logs
         except Exception as e:
             # 如果报错，把刚才查到的模型列表也显示出来，方便 debug
@@ -68,9 +68,9 @@ def generate_image_url(image_prompt):
 
 def generate_quiz(word, api_key):
     genai.configure(api_key=api_key)
-    # model = genai.GenerativeModel('gemini-2.5-flash')
+    model = genai.GenerativeModel('gemini-2.5-flash')
     # model = genai.GenerativeModel('gemini-2.0-flash-exp')
-    model = genai.GenerativeModel('gemini-2.0-flash-lite-preview-02-05')
+    # model = genai.GenerativeModel('gemini-2.0-flash-lite-preview-02-05')
 
     prompt = f"""
     请针对单词 "{word}" 设计一道英语词汇测试题。
