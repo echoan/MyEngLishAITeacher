@@ -3,7 +3,7 @@ Author: Chengya
 Description: Description
 Date: 2025-12-08 17:40:02
 LastEditors: Chengya
-LastEditTime: 2025-12-08 22:16:13
+LastEditTime: 2025-12-09 10:04:10
 '''
 import streamlit as st
 import google.generativeai as genai
@@ -25,7 +25,7 @@ def get_gemini_response(prompt):
 
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash') # 使用速度较快的 Flash 模型
+        model = genai.GenerativeModel('modules/gemini-1.5-flash') # 使用速度较快的 Flash 模型
         response = model.generate_content(prompt)
         if response.text:
            return response.text
