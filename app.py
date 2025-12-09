@@ -3,7 +3,7 @@ Author: Chengya
 Description: Description
 Date: 2025-12-09 12:37:25
 LastEditors: Chengya
-LastEditTime: 2025-12-09 14:29:01
+LastEditTime: 2025-12-09 14:38:38
 '''
 import streamlit as st
 import google.generativeai as genai
@@ -111,53 +111,112 @@ def next_question():
     st.session_state['generated_image_url'] = None
     generate_new_question()
 
+# def generate_new_question():
+#     # 1. 安全检查：总词库是不是空的
+#     if not st.session_state['word_bank']:
+#         st.warning("词库空了！请先添加单词。")
+#         return
+
+#     # 2. 👇 核心逻辑：检查剩余池子是否为空
+#     if not st.session_state['remaining_words']:
+#         # 如果空了，就重置（开启新一轮）
+#         st.session_state['remaining_words'] = st.session_state['word_bank'].copy()
+#         st.toast("🔄 所有单词已复习一遍，开启新一轮循环！", icon="🎉")
+
+#     # 清空上一张图
+#     st.session_state['generated_image_url'] = None
+
+#     # 3. 👇 从【剩余池子】里抽，而不是从总库里抽
+#     target_word = random.choice(st.session_state['remaining_words'])
+#     st.session_state['remaining_words'].remove(target_word)
+
+#     api_key = get_api_key()
+#     if not api_key:
+#         st.warning("请填写 API Key")
+#         return
+#     # 4. 生成题目文本 (文本生成很快，通常不需要缓存，但其实也可以缓存)
+#     # 这里我们只缓存图片，因为图片最慢  且占用流量
+#     with st.spinner(f"🤖 Gemini 正在构思【{target_word}】..."):
+#         quiz_data = generate_quiz(target_word, api_key)
+#     if not quiz_data:
+#         st.session_state['current_question'] = quiz_data
+#         # 5. 👇 图片缓存逻辑
+#         # 检查缓存里有没有这个词的图
+#         if target_word in st.session_state['image_cache']:
+#             # 命中缓存！直接用，不用等！
+#             img_url = st.session_state['image_cache'][target_word]
+#             # st.toast(f"⚡️ 命中缓存：{target_word}") # 可选：提示一下用户
+#         else:
+#             # 没命中，去生成
+#             with st.spinner("🎨 正在绘制插图 (新生成)..."):
+#                 img_prompt = quiz_data.get("image_gen_prompt", f"illustration of {target_word}")
+#                 img_url = generate_image_url(img_prompt)
+
+#                 # 存入缓存！！
+#                 st.session_state['image_cache'][target_word] = img_url
+#         # 更新当前显示的图片 URL
+#         st.session_state['generated_image_url'] = img_url
+#         st.session_state['quiz_state'] = 'QUIZ'
+
 def generate_new_question():
-    # 1. 安全检查：总词库是不是空的
+    # 1. 安全检查
     if not st.session_state['word_bank']:
         st.warning("词库空了！请先添加单词。")
         return
 
-    # 2. 👇 核心逻辑：检查剩余池子是否为空
+    # 2. 检查剩余池子
     if not st.session_state['remaining_words']:
-        # 如果空了，就重置（开启新一轮）
         st.session_state['remaining_words'] = st.session_state['word_bank'].copy()
-        st.toast("🔄 所有单词已复习一遍，开启新一轮循环！", icon="🎉")
+        st.toast("🔄 开启新一轮复习！", icon="🎉")
 
-    # 清空上一张图
     st.session_state['generated_image_url'] = None
 
-    # 3. 👇 从【剩余池子】里抽，而不是从总库里抽
+    # 3. 抽词
     target_word = random.choice(st.session_state['remaining_words'])
-    st.session_state['remaining_words'].remove(target_word)
+
+    # 先不移除，等成功了再移除，防止报错导致单词丢失
+    # st.session_state['remaining_words'].remove(target_word)
 
     api_key = get_api_key()
     if not api_key:
         st.warning("请填写 API Key")
         return
-    # 4. 生成题目文本 (文本生成很快，通常不需要缓存，但其实也可以缓存)
-    # 这里我们只缓存图片，因为图片最慢  且占用流量
+
+    # 4. 生成题目文本
     with st.spinner(f"🤖 Gemini 正在构思【{target_word}】..."):
         quiz_data = generate_quiz(target_word, api_key)
+
+    # 🚨 关键修改：如果没有拿到题目数据，直接停止，不往下走！
     if not quiz_data:
-        st.session_state['current_question'] = quiz_data
-        # 5. 👇 图片缓存逻辑
-        # 检查缓存里有没有这个词的图
-        if target_word in st.session_state['image_cache']:
-            # 命中缓存！直接用，不用等！
-            img_url = st.session_state['image_cache'][target_word]
-            # st.toast(f"⚡️ 命中缓存：{target_word}") # 可选：提示一下用户
-        else:
-            # 没命中，去生成
-            with st.spinner("🎨 正在绘制插图 (新生成)..."):
-                img_prompt = quiz_data.get("image_gen_prompt", f"illustration of {target_word}")
-                img_url = generate_image_url(img_prompt)
+        st.error("⚠️ AI 生成题目失败，请重试（可能是网络波动或 Key 额度不足）。")
+        return
 
-                # 存入缓存！！
-                st.session_state['image_cache'][target_word] = img_url
-        # 更新当前显示的图片 URL
-        st.session_state['generated_image_url'] = img_url
-        st.session_state['quiz_state'] = 'QUIZ'
+    # === 只有 quiz_data 存在时，才执行下面的代码 ===
 
+    # 成功了再移除单词
+    if target_word in st.session_state['remaining_words']:
+        st.session_state['remaining_words'].remove(target_word)
+
+    st.session_state['current_question'] = quiz_data
+
+    # 5. 图片缓存逻辑
+    if target_word in st.session_state['image_cache']:
+        # 命中缓存
+        img_url = st.session_state['image_cache'][target_word]
+        st.toast(f"⚡️ 命中缓存：{target_word}")
+    else:
+        # 没命中，去生成
+        with st.spinner("🎨 正在绘制插图..."):
+            # 这里如果不缩进，当 quiz_data 为 None 时就会报 AttributeError
+            img_prompt = quiz_data.get("image_gen_prompt", f"illustration of {target_word}")
+            img_url = generate_image_url(img_prompt)
+
+            # 存入缓存
+            st.session_state['image_cache'][target_word] = img_url
+
+    # 更新当前显示的图片 URL
+    st.session_state['generated_image_url'] = img_url
+    st.session_state['quiz_state'] = 'QUIZ'
 # --- 4. 界面渲染 ---
 
 st.title("🎨 英语单词闪卡大师 (Pro Max)")
