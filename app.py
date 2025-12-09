@@ -3,7 +3,7 @@ Author: Chengya
 Description: Description
 Date: 2025-12-09 12:37:25
 LastEditors: Chengya
-LastEditTime: 2025-12-09 14:00:13
+LastEditTime: 2025-12-09 14:29:01
 '''
 import streamlit as st
 import google.generativeai as genai
@@ -34,6 +34,9 @@ if 'has_started' not in st.session_state:
     # 👇 新增：剩余单词池
 if 'remaining_words' not in st.session_state:
     st.session_state['remaining_words'] = []
+# 👇 新增：图片缓存字典 { "单词": "URL" }
+if 'image_cache' not in st.session_state:
+    st.session_state['image_cache'] = {}
 
 # --- 3. 核心逻辑函数 ---
 
@@ -125,22 +128,35 @@ def generate_new_question():
 
     # 3. 👇 从【剩余池子】里抽，而不是从总库里抽
     target_word = random.choice(st.session_state['remaining_words'])
+    st.session_state['remaining_words'].remove(target_word)
 
     api_key = get_api_key()
     if not api_key:
         st.warning("请填写 API Key")
         return
-
+    # 4. 生成题目文本 (文本生成很快，通常不需要缓存，但其实也可以缓存)
+    # 这里我们只缓存图片，因为图片最慢  且占用流量
     with st.spinner(f"🤖 Gemini 正在构思【{target_word}】..."):
         quiz_data = generate_quiz(target_word, api_key)
+    if not quiz_data:
+        st.session_state['current_question'] = quiz_data
+        # 5. 👇 图片缓存逻辑
+        # 检查缓存里有没有这个词的图
+        if target_word in st.session_state['image_cache']:
+            # 命中缓存！直接用，不用等！
+            img_url = st.session_state['image_cache'][target_word]
+            # st.toast(f"⚡️ 命中缓存：{target_word}") # 可选：提示一下用户
+        else:
+            # 没命中，去生成
+            with st.spinner("🎨 正在绘制插图 (新生成)..."):
+                img_prompt = quiz_data.get("image_gen_prompt", f"illustration of {target_word}")
+                img_url = generate_image_url(img_prompt)
 
-    if quiz_data:
-        with st.spinner("🎨 正在绘制插图..."):
-            img_prompt = quiz_data.get("image_gen_prompt", f"illustration of {target_word}")
-            img_url = generate_image_url(img_prompt)
-            st.session_state['current_question'] = quiz_data
-            st.session_state['generated_image_url'] = img_url
-            st.session_state['quiz_state'] = 'QUIZ'
+                # 存入缓存！！
+                st.session_state['image_cache'][target_word] = img_url
+        # 更新当前显示的图片 URL
+        st.session_state['generated_image_url'] = img_url
+        st.session_state['quiz_state'] = 'QUIZ'
 
 # --- 4. 界面渲染 ---
 
@@ -197,9 +213,31 @@ if current_q and st.session_state['quiz_state'] in ['QUIZ', 'RESULT']:
             st.warning("⚠️ 语音生成失败，请检查网络")
     # -----------------------
 
-    # 2. 图片展示
+    # 2. 图片展示 (带重新生成功能)
     if img_url:
         st.image(img_url, caption="AI 联想记忆插图", use_container_width=True)
+
+        # 👇 NEW: 重新生成按钮
+        # 只有在做题状态(QUIZ)下才允许重新生成，避免结算后误触
+        if st.session_state['quiz_state'] == 'QUIZ':
+            col_regen, col_space = st.columns([1, 2])
+            with col_regen:
+                if st.button("🔄 图片不准？换一张", help="点击重新生成一张新的联想图，并更新缓存"):
+                    with st.spinner("🎨 画师正在重绘中..."):
+                        # 1. 获取当前的绘图 Prompt
+                        img_prompt = current_q.get("image_gen_prompt", f"illustration of {current_q['word']}")
+
+                        # 2. 强制生成新 URL (时间戳不同，图就会变)
+                        new_img_url = generate_image_url(img_prompt)
+
+                        # 3. 更新当前显示状态
+                        st.session_state['generated_image_url'] = new_img_url
+
+                        # 4. 关键：更新缓存 (覆盖旧图)
+                        st.session_state['image_cache'][current_q['word']] = new_img_url
+
+                        # 5. 强制刷新页面，立刻显示新图
+                        st.rerun()
     else:
         st.error("图片加载失败")
 
