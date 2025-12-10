@@ -1,10 +1,3 @@
-'''
-Author: Chengya
-Description: Description
-Date: 2025-12-10 22:28:31
-LastEditors: Chengya
-LastEditTime: 2025-12-10 22:28:32
-'''
 import streamlit as st
 import google.generativeai as genai
 import json
@@ -13,7 +6,7 @@ import requests
 import time
 from gtts import gTTS
 import io
-import concurrent.futures # 👈 1. 引入并发库
+import concurrent.futures
 
 # --- 1. 页面配置 ---
 st.set_page_config(page_title="英语单词闪卡大师 (极速版)", page_icon="⚡️")
@@ -38,7 +31,7 @@ if 'quiz_state' not in st.session_state:
     st.session_state['quiz_state'] = 'IDLE'
 if 'user_selection' not in st.session_state:
     st.session_state['user_selection'] = None
-if 'generated_image_data' not in st.session_state: # 改名：这里存的是二进制数据
+if 'generated_image_data' not in st.session_state:
     st.session_state['generated_image_data'] = None
 if 'has_started' not in st.session_state:
     st.session_state['has_started'] = False
@@ -46,33 +39,35 @@ if 'remaining_words' not in st.session_state:
     st.session_state['remaining_words'] = []
 if 'image_cache' not in st.session_state:
     st.session_state['image_cache'] = {}
-if 'quiz_cache' not in st.session_state: # 新增：题目缓存
+if 'quiz_cache' not in st.session_state:
     st.session_state['quiz_cache'] = {}
 
 # --- 4. 核心逻辑函数 ---
 
-# 基础生成 URL 函数
 def generate_image_url(image_prompt):
     timestamp = int(time.time())
     encoded_prompt = requests.utils.quote(image_prompt)
     return f"https://image.pollinations.ai/prompt/{encoded_prompt}?nolog=true&t={timestamp}"
 
-# 🚀 新增：后端下载图片函数 (为了能控制超时)
+# 后端下载图片函数 (带伪装头)
 def fetch_image_data(prompt, timeout=3.5):
     url = generate_image_url(prompt)
     try:
-        # 设置 requests 超时
-        resp = requests.get(url, timeout=timeout)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        resp = requests.get(url, headers=headers, timeout=timeout)
         if resp.status_code == 200:
-            return resp.content # 返回二进制数据
-    except Exception:
-        pass
+            return resp.content
+        else:
+            print(f"❌ 图片接口错误: {resp.status_code}")
+    except Exception as e:
+        print(f"❌ 图片下载异常: {e}")
     return None
 
 def generate_quiz(word, key):
     genai.configure(api_key=key)
-
-    # ✅ 锁定 Gemma 3 (14.4K 配额)
+    # 使用 Gemma 3 (14.4K 配额)
     model = genai.GenerativeModel('models/gemma-3-27b-it')
 
     prompt = f"""
@@ -131,13 +126,11 @@ def next_question():
     st.session_state['generated_image_data'] = None
     generate_new_question()
 
-# 🚀 核心：并行生成逻辑
 def generate_new_question():
     if not api_key:
         st.toast("⚠️ 请先输入 API Key")
         return
 
-    # 洗牌逻辑
     if not st.session_state['remaining_words']:
         if not st.session_state['word_bank']:
             st.warning("词库空了！")
@@ -145,63 +138,47 @@ def generate_new_question():
         st.session_state['remaining_words'] = st.session_state['word_bank'].copy()
         st.toast("🔄 开启新一轮复习！")
 
-    # 清空状态
     st.session_state['generated_image_data'] = None
     target_word = random.choice(st.session_state['remaining_words'])
 
-    # === 并行逻辑开始 ===
-
+    # === 并行逻辑 ===
     quiz_data = None
     img_data = None
 
-    # 1. 查缓存 (Cache Hit)
+    # 查缓存
     if target_word in st.session_state['quiz_cache']:
         quiz_data = st.session_state['quiz_cache'][target_word]
     if target_word in st.session_state['image_cache']:
         img_data = st.session_state['image_cache'][target_word]
         st.toast("⚡️ 命中缓存")
 
-    # 2. 计算缺失任务 (Cache Miss)
     missing_text = (quiz_data is None)
     missing_img = (img_data is None)
 
-    # 3. 启动线程池
     if missing_text or missing_img:
-        # 显示加载状态
         with st.spinner(f"🚀 AI 正在极速出题: {target_word}..."):
-
-            # 为了并行，我们不等 Gemma 的 Prompt，直接用本地模板开始画图
             local_img_prompt = f"Creative cartoon illustration of '{target_word}', vector art style, white background, vivid colors."
 
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 future_text = None
                 future_img = None
 
-                # 任务 A: Gemma 出题 (关键路径)
                 if missing_text:
                     future_text = executor.submit(generate_quiz, target_word, api_key)
-
-                # 任务 B: 下载图片 (非关键，带超时)
                 if missing_img:
-                    # 设定 3.5秒 网络超时
                     future_img = executor.submit(fetch_image_data, local_img_prompt, 3.5)
 
-                # --- 获取结果 ---
-
-                # A. 获取题目 (必须等)
                 if future_text:
                     try:
                         quiz_data = future_text.result()
                         if quiz_data:
                             st.session_state['quiz_cache'][target_word] = quiz_data
                     except Exception:
-                        st.error("AI 出题失败，请重试")
+                        st.error("AI 出题失败")
                         return
 
-                # B. 获取图片 (4秒熔断)
                 if future_img:
                     try:
-                        # 线程级超时控制 (4秒)
                         img_data = future_img.result(timeout=4)
                         if img_data:
                             st.session_state['image_cache'][target_word] = img_data
@@ -209,24 +186,19 @@ def generate_new_question():
                             print(f"图片下载失败或超时: {target_word}")
                     except concurrent.futures.TimeoutError:
                         print("图片线程超时 - 跳过")
-                        img_data = None # 确保不卡死，直接为空
+                        img_data = None
 
-    # === 组装数据 ===
-    if not quiz_data:
-        return
+    if not quiz_data: return
 
-    # 成功后从剩余池移除
     if target_word in st.session_state['remaining_words']:
         st.session_state['remaining_words'].remove(target_word)
 
     st.session_state['current_question'] = quiz_data
     st.session_state['generated_image_data'] = img_data
     st.session_state['quiz_state'] = 'QUIZ'
-
     st.rerun()
 
 # --- 5. 界面渲染 ---
-
 st.title("⚡️ 英语单词闪卡 (Gemma 3 并行版)")
 
 with st.expander("➕ 添加生词", expanded=not st.session_state['word_bank']):
@@ -263,31 +235,35 @@ if curr and st.session_state['quiz_state'] in ['QUIZ', 'RESULT']:
             st.audio(sound_file, format='audio/mp3')
         except: pass
 
-    # 图片 (二进制流渲染)
-    if img_data:
-        st.image(img_data, caption="AI 联想记忆", use_container_width=True)
-        # 只有在有图且做题时才显示重绘
-        if st.session_state['quiz_state'] == 'QUIZ':
-            if st.button("🔄 图片不准？重画"):
-                with st.spinner("重绘中..."):
-                    # 重绘时可以用 Gemma 生成的详细 Prompt
-                    p = curr.get("image_gen_prompt", f"illustration of {curr['word']}")
-                    new_img = fetch_image_data(p, timeout=10) # 手动重绘可以多等一会
-                    if new_img:
-                        st.session_state['generated_image_data'] = new_img
-                        st.session_state['image_cache'][curr['word']] = new_img
-                        st.rerun()
-    else:
-        # 优雅降级提示
-        st.info("🐢 图片加载较慢，已跳过，请专注答题。")
+    # 图片展示区
+    img_container = st.empty()
 
-    # 选项
+    if img_data:
+        img_container.image(img_data, caption="AI 联想记忆", use_container_width=True)
+    else:
+        img_container.warning("🐢 图片加载失败 (可能网络超时)，点击下方按钮重试 👇")
+
+    # 重新生成按钮 (任何时候都显示)
+    if st.session_state['quiz_state'] == 'QUIZ':
+        regen_label = "🔄 图片不准？重画" if img_data else "🔄 重新加载图片"
+        if st.button(regen_label, help="点击重新调用 AI 绘图"):
+            with st.spinner("🎨 正在努力重绘中..."):
+                p = curr.get("image_gen_prompt", f"illustration of {curr['word']}")
+                # 手动重试给 10秒
+                new_img = fetch_image_data(p, timeout=10)
+                if new_img:
+                    st.session_state['generated_image_data'] = new_img
+                    st.session_state['image_cache'][curr['word']] = new_img
+                    st.rerun()
+                else:
+                    st.toast("❌ 重试依然失败，请检查网络")
+
+    # 选项区
     st.write("### 👇 选择释义：")
     dis = (st.session_state['quiz_state'] == 'RESULT')
     options = curr['options']
 
     col1, col2 = st.columns(2)
-
     def render_btn(idx):
         if idx >= len(options): return
         opt = options[idx]
@@ -299,7 +275,6 @@ if curr and st.session_state['quiz_state'] in ['QUIZ', 'RESULT']:
     with col1: render_btn(0); render_btn(1)
     with col2: render_btn(2); render_btn(3)
 
-    # 结果
     if st.session_state['quiz_state'] == 'RESULT':
         if st.session_state['user_selection'] == curr['correct_label']:
             st.success("🎉 正确！")
