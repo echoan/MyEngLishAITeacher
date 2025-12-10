@@ -1,10 +1,3 @@
-'''
-Author: Chengya
-Description: Description
-Date: 2025-12-10 20:44:40
-LastEditors: Chengya
-LastEditTime: 2025-12-10 21:17:23
-'''
 import streamlit as st
 import google.generativeai as genai
 import json
@@ -13,7 +6,6 @@ import requests
 import time
 from gtts import gTTS
 import io
-import concurrent.futures # 👈 新增：用于并发执行
 
 # --- 1. 页面配置 ---
 st.set_page_config(page_title="英语单词闪卡大师 (Pro Max)", page_icon="🎨")
@@ -49,9 +41,6 @@ if 'remaining_words' not in st.session_state:
     st.session_state['remaining_words'] = []
 if 'image_cache' not in st.session_state:
     st.session_state['image_cache'] = {}
-# 👇 新增：题目文本缓存 { "单词": json_data }
-if 'quiz_cache' not in st.session_state:
-    st.session_state['quiz_cache'] = {}
 
 # --- 4. 核心逻辑函数 ---
 
@@ -121,123 +110,53 @@ def next_question():
     generate_new_question()
 
 def generate_new_question():
-    # 1. 基础检查
+    # 1. 检查 Key 是否存在 (从全局变量获取)
     if not api_key:
         st.toast("⚠️ 请先在左侧输入 API Key")
         return
+
+    # 2. 安全检查
     if not st.session_state['word_bank']:
         st.warning("词库空了！请先添加单词。")
         return
 
-    # 2. 洗牌逻辑
+    # 3. 检查剩余池子 (洗牌)
     if not st.session_state['remaining_words']:
         st.session_state['remaining_words'] = st.session_state['word_bank'].copy()
         st.toast("🔄 开启新一轮复习！", icon="🎉")
 
-    # 清空旧状态
     st.session_state['generated_image_url'] = None
-    st.session_state['current_question'] = None
 
-    # 3. 抽词
+    # 4. 抽词
     target_word = random.choice(st.session_state['remaining_words'])
 
-    # === 🚀 优化：并行 + 真实下载超时熔断 ===
-
-    quiz_data = None
-    img_data = None # 注意：这里改名叫 img_data，因为我们要存二进制数据
-
-    # 3.1 检查缓存
-    if target_word in st.session_state['quiz_cache']:
-        quiz_data = st.session_state['quiz_cache'][target_word]
-
-    if target_word in st.session_state['image_cache']:
-        # 这里的缓存里存的已经是下载好的图片数据了
-        img_data = st.session_state['image_cache'][target_word]
-        st.toast(f"⚡️ 图片命中缓存")
-
-    # 3.2 计算缺失部分
-    missing_text = (quiz_data is None)
-    missing_img = (img_data is None)
-
-    # 3.3 并行执行
-    if missing_text or missing_img:
-        # 定义一个辅助函数：真的去下载图片，而不只是拼URL
-        def fetch_image_with_timeout(prompt):
-            url = generate_image_url(prompt) # 先拿 URL
-            try:
-                # 🔥 关键：后端发起 HTTP 请求下载图片，设置 3.5秒 超时 (留0.5秒给处理)
-                resp = requests.get(url, timeout=3.5)
-                if resp.status_code == 200:
-                    return resp.content # 返回二进制图片数据
-            except Exception as e:
-                print(f"图片下载超时或失败: {e}")
-            return None
-
-        # 提示语
-        loading_msg = st.empty()
-        loading_msg.info(f"🚀 AI 正在极速出题: {target_word} (限时4秒)...")
-
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future_text = None
-            future_img = None
-
-            # 任务 A: 题目 (必须等)
-            if missing_text:
-                future_text = executor.submit(generate_quiz, target_word, api_key)
-
-            # 任务 B: 图片下载 (非必须)
-            if missing_img:
-                local_image_prompt = f"A creative cartoon illustration of the word '{target_word}', vivid colors, vector art style, white background, high quality."
-                future_img = executor.submit(fetch_image_with_timeout, local_image_prompt)
-
-            # --- 获取结果 ---
-
-            # 1. 获取题目 (Gemini)
-            if future_text:
-                try:
-                    # 题目是必须的，我们多给点时间，比如 8秒
-                    quiz_data = future_text.result(timeout=10)
-                    if quiz_data:
-                        st.session_state['quiz_cache'][target_word] = quiz_data
-                except Exception:
-                    st.error("题目生成超时，网络可能有点慢")
-                    return
-
-            # 2. 获取图片 (严格 4秒 熔断)
-            if future_img:
-                try:
-                    # 我们已经在 fetch_image_with_timeout 里设了 requests timeout
-                    # 这里只是为了防止线程死锁
-                    img_data = future_img.result(timeout=4)
-
-                    if img_data:
-                        st.session_state['image_cache'][target_word] = img_data
-                    else:
-                        st.toast("🐢 图片生成超时，已跳过！")
-
-                except Exception:
-                    st.toast("🐢 图片生成超时，已跳过！")
-                    img_data = None
-
-        loading_msg.empty() # 清除提示
-
-    # === 数据组装 ===
+    # 5. 生成文本
+    with st.spinner(f"🤖 Gemini 正在构思【{target_word}】..."):
+        # 传入全局的 api_key
+        quiz_data = generate_quiz(target_word, api_key)
 
     if not quiz_data:
+        # 错误已在 generate_quiz 中显示，这里直接返回
         return
 
-    # 移除单词
+    # 成功后再移除单词
     if target_word in st.session_state['remaining_words']:
         st.session_state['remaining_words'].remove(target_word)
 
-    # 更新 Session State
     st.session_state['current_question'] = quiz_data
-    st.session_state['generated_image_url'] = img_data # 存的是二进制数据
+
+    # 6. 图片缓存逻辑
+    if target_word in st.session_state['image_cache']:
+        img_url = st.session_state['image_cache'][target_word]
+        st.toast(f"⚡️ 命中图片缓存：{target_word}")
+    else:
+        with st.spinner("🎨 正在绘制插图..."):
+            img_prompt = quiz_data.get("image_gen_prompt", f"illustration of {target_word}")
+            img_url = generate_image_url(img_prompt)
+            st.session_state['image_cache'][target_word] = img_url
+
+    st.session_state['generated_image_url'] = img_url
     st.session_state['quiz_state'] = 'QUIZ'
-
-    # 强制刷新
-    st.rerun()
-
 
 # --- 5. 界面渲染 ---
 
