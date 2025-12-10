@@ -51,42 +51,93 @@ def generate_image_url(image_prompt):
     image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?nolog=true&t={timestamp}"
     return image_url
 
-def generate_quiz(word, key):
-    genai.configure(api_key=key)
+# def generate_quiz(word, key):
+#     genai.configure(api_key=key)
 
-    # 🔥 关键修改：使用标准版 1.5 Flash (新账号稳稳的)
-    model = genai.GenerativeModel('gemini-2.5-flash')
+#     # 🔥 关键修改：使用标准版 1.5 Flash (新账号稳稳的)
+#     model = genai.GenerativeModel('gemini-2.5-flash')
+
+#     prompt = f"""
+#     请针对单词 "{word}" 设计一道英语词汇测试题。
+#     核心任务：
+#     1. 为这个单词设计一个非常有创意、画面感极强、有助于记忆的场景。
+#     2. 将这个场景翻译成一段详细的【英文绘图提示词 (Image Generation Prompt)】。
+#     3. 英文提示词要求：包含主体、动作、环境、光线、艺术风格（如 cartoon style, digital art, vibrant colors）。
+
+#     请严格输出标准的 JSON 格式，不要包含 Markdown 标记。
+#     JSON 结构如下：
+#     {{
+#         "word": "{word}",
+#         "ipa": "单词音标",
+#         "image_gen_prompt": "Detailed English image generation prompt...",
+#         "visual_cue_cn": "简短的中文场景描述（备用）",
+#         "options": [
+#             {{"label": "A", "text": "错误中文释义1"}},
+#             {{"label": "B", "text": "正确中文释义"}},
+#             {{"label": "C", "text": "错误中文释义2"}},
+#             {{"label": "D", "text": "错误中文释义3"}}
+#         ],
+#         "correct_label": "B"
+#     }}
+#     注意：随机打乱正确选项位置。
+#     """
+
+#     try:
+#         response = model.generate_content(prompt)
+#         return json.loads(response.text)
+#     except Exception as e:
+#         st.error(f"AI 生成解析失败: {e}")
+#         return None
+
+def generate_quiz(word, api_key):
+    genai.configure(api_key=api_key)
+
+    # ❌ 弃用：额度太少 (20次/天)
+    # model = genai.GenerativeModel('gemini-2.5-flash')
+
+    # ✅ 启用：Gemma 3 27B (宝藏模型，额度 14400次/天)
+    # 注意：必须带 'models/' 前缀，且选 'it' (Instruction Tuned) 版本
+    model = genai.GenerativeModel('models/gemma-3-27b-it')
 
     prompt = f"""
     请针对单词 "{word}" 设计一道英语词汇测试题。
-    核心任务：
-    1. 为这个单词设计一个非常有创意、画面感极强、有助于记忆的场景。
-    2. 将这个场景翻译成一段详细的【英文绘图提示词 (Image Generation Prompt)】。
-    3. 英文提示词要求：包含主体、动作、环境、光线、艺术风格（如 cartoon style, digital art, vibrant colors）。
 
-    请严格输出标准的 JSON 格式，不要包含 Markdown 标记。
-    JSON 结构如下：
+    必须严格遵守以下规则：
+    1. 直接返回纯 JSON 格式。
+    2. 不要使用 Markdown 标记（不要写 ```json）。
+    3. JSON 必须包含：word, ipa, image_gen_prompt(英文绘图指令), visual_cue_cn(中文场景), options(数组), correct_label。
+
+    JSON 结构示例：
     {{
         "word": "{word}",
-        "ipa": "单词音标",
-        "image_gen_prompt": "Detailed English image generation prompt...",
-        "visual_cue_cn": "简短的中文场景描述（备用）",
+        "ipa": "音标",
+        "image_gen_prompt": "Cartoon style illustration of...",
+        "visual_cue_cn": "中文场景描述",
         "options": [
-            {{"label": "A", "text": "错误中文释义1"}},
-            {{"label": "B", "text": "正确中文释义"}},
-            {{"label": "C", "text": "错误中文释义2"}},
-            {{"label": "D", "text": "错误中文释义3"}}
+            {{"label": "A", "text": "..."}},
+            {{"label": "B", "text": "..."}},
+            {{"label": "C", "text": "..."}},
+            {{"label": "D", "text": "..."}}
         ],
         "correct_label": "B"
     }}
-    注意：随机打乱正确选项位置。
     """
 
     try:
         response = model.generate_content(prompt)
-        return json.loads(response.text)
+        # Gemma 有时候会比较“啰嗦”，为了防止它返回非 JSON 内容，我们做个清洗
+        text = response.text
+        # 如果包含 markdown 代码块，去掉它
+        if "```json" in text:
+            text = text.replace("```json", "").replace("```", "")
+        if "```" in text: # 有时候它只写 ```
+            text = text.replace("```", "")
+
+        return json.loads(text)
     except Exception as e:
-        st.error(f"AI 生成解析失败: {e}")
+        # 如果报错，打印出来方便看是不是 Gemma 没听话
+        print(f"Gemma 解析失败: {e}")
+        st.error(f"AI 生成失败 (Gemma): {e}")
         return None
 
 def add_words():
