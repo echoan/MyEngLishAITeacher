@@ -3,7 +3,7 @@ Author: Chengya
 Description: Description
 Date: 2025-12-10 20:44:40
 LastEditors: Chengya
-LastEditTime: 2025-12-10 21:05:59
+LastEditTime: 2025-12-10 21:13:23
 '''
 import streamlit as st
 import google.generativeai as genai
@@ -121,7 +121,7 @@ def next_question():
     generate_new_question()
 
 def generate_new_question():
-    # 1. 基础检查
+    # 1. 基础检查 (保持不变)
     if not api_key:
         st.toast("⚠️ 请先在左侧输入 API Key")
         return
@@ -129,7 +129,7 @@ def generate_new_question():
         st.warning("词库空了！请先添加单词。")
         return
 
-    # 2. 洗牌逻辑
+    # 2. 洗牌逻辑 (保持不变)
     if not st.session_state['remaining_words']:
         st.session_state['remaining_words'] = st.session_state['word_bank'].copy()
         st.toast("🔄 开启新一轮复习！", icon="🎉")
@@ -141,68 +141,73 @@ def generate_new_question():
     # 3. 抽词
     target_word = random.choice(st.session_state['remaining_words'])
 
-    # === 🚀 智能缓存与并行逻辑 ===
+    # === 🚀 优化：并行 + 超时熔断 ===
 
     quiz_data = None
     img_url = None
 
-    # 3.1 先检查缓存 (Hit Cache)
+    # 3.1 检查缓存 (Hit Cache)
     if target_word in st.session_state['quiz_cache']:
         quiz_data = st.session_state['quiz_cache'][target_word]
-        st.toast(f"⚡️ 题目命中缓存")
 
     if target_word in st.session_state['image_cache']:
         img_url = st.session_state['image_cache'][target_word]
         st.toast(f"⚡️ 图片命中缓存")
 
-    # 3.2 计算缺失部分 (What is missing?)
+    # 3.2 计算缺失部分
     missing_text = (quiz_data is None)
     missing_img = (img_url is None)
 
-    # 3.3 如果有缺失，启动线程池并行获取
+    # 3.3 并行获取 (带超时控制)
     if missing_text or missing_img:
-        # 显示 Loading 状态
-        cols = st.columns(2)
-        if missing_text: cols[0].info(f"🤖 AI 正在构思: {target_word}...")
-        if missing_img:  cols[1].info("🎨 画师正在绘制...")
+        # 显示简单的 Loading
+        with st.spinner(f"🚀 AI 正在极速出题: {target_word}..."):
 
-        start_time = time.time()
+            local_image_prompt = f"A creative cartoon illustration of the word '{target_word}', vivid colors, vector art style, white background, high quality."
 
-        # 定义本地绘图 Prompt (用于并行加速)
-        local_image_prompt = f"A creative cartoon illustration of the word '{target_word}', vivid colors, vector art style, white background, high quality."
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future_text = None
+                future_img = None
 
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future_text = None
-            future_img = None
+                # 任务 A: 题目 (关键路径，必须等)
+                if missing_text:
+                    future_text = executor.submit(generate_quiz, target_word, api_key)
 
-            # 缺题目就去请求 Gemini
-            if missing_text:
-                future_text = executor.submit(generate_quiz, target_word, api_key)
+                # 任务 B: 图片 (非关键路径，设定超时)
+                if missing_img:
+                    future_img = executor.submit(generate_image_url, local_image_prompt)
 
-            # 缺图片就去请求 Pollinations
-            if missing_img:
-                future_img = executor.submit(generate_image_url, local_image_prompt)
+                # --- 获取结果 ---
 
-            # 获取结果 (阻塞直到完成)
-            if future_text:
-                quiz_data = future_text.result()
-                # 写入缓存
-                if quiz_data:
-                    st.session_state['quiz_cache'][target_word] = quiz_data
+                # 1. 先拿题目 (这是必须的，死等也要拿到，不然没法做题)
+                if future_text:
+                    quiz_data = future_text.result()
+                    if quiz_data:
+                        st.session_state['quiz_cache'][target_word] = quiz_data
 
-            if future_img:
-                img_url = future_img.result()
-                # 写入缓存
-                st.session_state['image_cache'][target_word] = img_url
+                # 2. 再拿图片 (设置 4 秒超时熔断)
+                if future_img:
+                    try:
+                        # 🔥 核心修改：只等 4 秒！
+                        # 第一次加载通常慢是因为 Pollinations 或者是 Cold Start
+                        img_url = future_img.result(timeout=4)
 
-        # 清除 Loading
-        cols[0].empty()
-        cols[1].empty()
+                        # 只有成功拿到才存缓存
+                        st.session_state['image_cache'][target_word] = img_url
+
+                    except concurrent.futures.TimeoutError:
+                        # ⏰ 超时了！
+                        print(f"⚠️ 图片生成超时 ({target_word}) - 跳过图片渲染")
+                        st.toast("🐢 图片生成太慢，已跳过，请专心做题！")
+                        img_url = None # 标记为空，直接展示题目
+                    except Exception as e:
+                        print(f"❌ 图片生成出错: {e}")
+                        img_url = None
 
     # === 数据组装 ===
 
     if not quiz_data:
-        return # 错误处理已在 generate_quiz 内部
+        return # 错误已在 generate_quiz 内部显示
 
     # 移除单词
     if target_word in st.session_state['remaining_words']:
@@ -213,10 +218,9 @@ def generate_new_question():
     st.session_state['generated_image_url'] = img_url
     st.session_state['quiz_state'] = 'QUIZ'
 
-    # 只有当没有任何缓存命中（全是新生成的）时，才强制 rerun，
-    # 否则 Streamlit 的自动刷新机制通常足够，强制 rerun 可能会导致闪烁。
-    # 但为了稳妥显示图片，这里保留 rerun，或者让用户手动点（通常不需要）
+    # 强制刷新，立刻显示结果
     # st.rerun()
+
 
 # --- 5. 界面渲染 ---
 
