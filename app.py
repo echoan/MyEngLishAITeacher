@@ -92,20 +92,16 @@ def generate_image_url(image_prompt):
 def generate_quiz(word, api_key):
     genai.configure(api_key=api_key)
 
-    # ❌ 弃用：额度太少 (20次/天)
-    # model = genai.GenerativeModel('gemini-2.5-flash')
-
-    # ✅ 启用：Gemma 3 27B (宝藏模型，额度 14400次/天)
-    # 注意：必须带 'models/' 前缀，且选 'it' (Instruction Tuned) 版本
+    # 继续使用这个宝藏模型
     model = genai.GenerativeModel('models/gemma-3-27b-it')
 
     prompt = f"""
     请针对单词 "{word}" 设计一道英语词汇测试题。
 
     必须严格遵守以下规则：
-    1. 直接返回纯 JSON 格式。
-    2. 不要使用 Markdown 标记（不要写 ```json）。
-    3. JSON 必须包含：word, ipa, image_gen_prompt(英文绘图指令), visual_cue_cn(中文场景), options(数组), correct_label。
+    1. 直接返回纯 JSON 格式，不要使用 Markdown 标记。
+    2. **核心要求：选项 (options) 中的 text 必须是该单词的【中文释义】，绝对不要使用英文解释！**
+    3. 干扰项 (错误选项) 也必须是其他不相关的【中文词汇】。
 
     JSON 结构示例：
     {{
@@ -114,10 +110,10 @@ def generate_quiz(word, api_key):
         "image_gen_prompt": "Cartoon style illustration of...",
         "visual_cue_cn": "中文场景描述",
         "options": [
-            {{"label": "A", "text": "..."}},
-            {{"label": "B", "text": "..."}},
-            {{"label": "C", "text": "..."}},
-            {{"label": "D", "text": "..."}}
+            {{"label": "A", "text": "错误的中文意思"}},
+            {{"label": "B", "text": "正确的中文意思"}},
+            {{"label": "C", "text": "错误的中文意思"}},
+            {{"label": "D", "text": "错误的中文意思"}}
         ],
         "correct_label": "B"
     }}
@@ -125,17 +121,15 @@ def generate_quiz(word, api_key):
 
     try:
         response = model.generate_content(prompt)
-        # Gemma 有时候会比较“啰嗦”，为了防止它返回非 JSON 内容，我们做个清洗
         text = response.text
-        # 如果包含 markdown 代码块，去掉它
+        # 清洗可能存在的 markdown 标记
         if "```json" in text:
             text = text.replace("```json", "").replace("```", "")
-        if "```" in text: # 有时候它只写 ```
+        if "```" in text:
             text = text.replace("```", "")
 
         return json.loads(text)
     except Exception as e:
-        # 如果报错，打印出来方便看是不是 Gemma 没听话
         print(f"Gemma 解析失败: {e}")
         st.error(f"AI 生成失败 (Gemma): {e}")
         return None
