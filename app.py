@@ -3,7 +3,7 @@ Author: Chengya
 Description: Description
 Date: 2025-12-10 20:44:40
 LastEditors: Chengya
-LastEditTime: 2025-12-10 20:50:33
+LastEditTime: 2025-12-10 21:05:59
 '''
 import streamlit as st
 import google.generativeai as genai
@@ -13,6 +13,7 @@ import requests
 import time
 from gtts import gTTS
 import io
+import concurrent.futures # 👈 新增：用于并发执行
 
 # --- 1. 页面配置 ---
 st.set_page_config(page_title="英语单词闪卡大师 (Pro Max)", page_icon="🎨")
@@ -48,6 +49,9 @@ if 'remaining_words' not in st.session_state:
     st.session_state['remaining_words'] = []
 if 'image_cache' not in st.session_state:
     st.session_state['image_cache'] = {}
+# 👇 新增：题目文本缓存 { "单词": json_data }
+if 'quiz_cache' not in st.session_state:
+    st.session_state['quiz_cache'] = {}
 
 # --- 4. 核心逻辑函数 ---
 
@@ -117,53 +121,102 @@ def next_question():
     generate_new_question()
 
 def generate_new_question():
-    # 1. 检查 Key 是否存在 (从全局变量获取)
+    # 1. 基础检查
     if not api_key:
         st.toast("⚠️ 请先在左侧输入 API Key")
         return
-
-    # 2. 安全检查
     if not st.session_state['word_bank']:
         st.warning("词库空了！请先添加单词。")
         return
 
-    # 3. 检查剩余池子 (洗牌)
+    # 2. 洗牌逻辑
     if not st.session_state['remaining_words']:
         st.session_state['remaining_words'] = st.session_state['word_bank'].copy()
         st.toast("🔄 开启新一轮复习！", icon="🎉")
 
+    # 清空旧状态
     st.session_state['generated_image_url'] = None
+    st.session_state['current_question'] = None
 
-    # 4. 抽词
+    # 3. 抽词
     target_word = random.choice(st.session_state['remaining_words'])
 
-    # 5. 生成文本
-    with st.spinner(f"🤖 Gemini 正在构思【{target_word}】..."):
-        # 传入全局的 api_key
-        quiz_data = generate_quiz(target_word, api_key)
+    # === 🚀 智能缓存与并行逻辑 ===
+
+    quiz_data = None
+    img_url = None
+
+    # 3.1 先检查缓存 (Hit Cache)
+    if target_word in st.session_state['quiz_cache']:
+        quiz_data = st.session_state['quiz_cache'][target_word]
+        st.toast(f"⚡️ 题目命中缓存")
+
+    if target_word in st.session_state['image_cache']:
+        img_url = st.session_state['image_cache'][target_word]
+        st.toast(f"⚡️ 图片命中缓存")
+
+    # 3.2 计算缺失部分 (What is missing?)
+    missing_text = (quiz_data is None)
+    missing_img = (img_url is None)
+
+    # 3.3 如果有缺失，启动线程池并行获取
+    if missing_text or missing_img:
+        # 显示 Loading 状态
+        cols = st.columns(2)
+        if missing_text: cols[0].info(f"🤖 AI 正在构思: {target_word}...")
+        if missing_img:  cols[1].info("🎨 画师正在绘制...")
+
+        start_time = time.time()
+
+        # 定义本地绘图 Prompt (用于并行加速)
+        local_image_prompt = f"A creative cartoon illustration of the word '{target_word}', vivid colors, vector art style, white background, high quality."
+
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future_text = None
+            future_img = None
+
+            # 缺题目就去请求 Gemini
+            if missing_text:
+                future_text = executor.submit(generate_quiz, target_word, api_key)
+
+            # 缺图片就去请求 Pollinations
+            if missing_img:
+                future_img = executor.submit(generate_image_url, local_image_prompt)
+
+            # 获取结果 (阻塞直到完成)
+            if future_text:
+                quiz_data = future_text.result()
+                # 写入缓存
+                if quiz_data:
+                    st.session_state['quiz_cache'][target_word] = quiz_data
+
+            if future_img:
+                img_url = future_img.result()
+                # 写入缓存
+                st.session_state['image_cache'][target_word] = img_url
+
+        # 清除 Loading
+        cols[0].empty()
+        cols[1].empty()
+
+    # === 数据组装 ===
 
     if not quiz_data:
-        # 错误已在 generate_quiz 中显示，这里直接返回
-        return
+        return # 错误处理已在 generate_quiz 内部
 
-    # 成功后再移除单词
+    # 移除单词
     if target_word in st.session_state['remaining_words']:
         st.session_state['remaining_words'].remove(target_word)
 
+    # 更新 Session State
     st.session_state['current_question'] = quiz_data
-
-    # 6. 图片缓存逻辑
-    if target_word in st.session_state['image_cache']:
-        img_url = st.session_state['image_cache'][target_word]
-        st.toast(f"⚡️ 命中图片缓存：{target_word}")
-    else:
-        with st.spinner("🎨 正在绘制插图..."):
-            img_prompt = quiz_data.get("image_gen_prompt", f"illustration of {target_word}")
-            img_url = generate_image_url(img_prompt)
-            st.session_state['image_cache'][target_word] = img_url
-
     st.session_state['generated_image_url'] = img_url
     st.session_state['quiz_state'] = 'QUIZ'
+
+    # 只有当没有任何缓存命中（全是新生成的）时，才强制 rerun，
+    # 否则 Streamlit 的自动刷新机制通常足够，强制 rerun 可能会导致闪烁。
+    # 但为了稳妥显示图片，这里保留 rerun，或者让用户手动点（通常不需要）
+    # st.rerun()
 
 # --- 5. 界面渲染 ---
 
