@@ -178,7 +178,7 @@ def generate_new_question():
     st.session_state['generated_image_url'] = img_url
     st.session_state['quiz_state'] = 'QUIZ'
 
-    st.rerun()
+    # st.rerun()
 
 # --- 5. 界面渲染 ---
 
@@ -205,6 +205,7 @@ if st.session_state['quiz_state'] == 'IDLE' and st.session_state['word_bank']:
     if st.button(btn_label, type="primary", use_container_width=True, disabled=not api_key):
         st.session_state['has_started'] = True
         generate_new_question()
+        st.rerun() # 👈 在这里加上这行！
 
 current_q = st.session_state['current_question']
 img_url = st.session_state['generated_image_url']
