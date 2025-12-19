@@ -1,3 +1,10 @@
+'''
+Author: Chengya
+Description: Description
+Date: 2025-12-09 23:01:38
+LastEditors: Chengya
+LastEditTime: 2025-12-19 10:12:06
+'''
 import os
 import google.generativeai as genai
 
@@ -28,4 +35,4 @@ try:
     print(f"测试结果: {response.text}")
 
 except Exception as e:
-    print(f"\n发生错误: {e}")
+    print(f"\n发生错误了: {e}")
